@@ -17,3 +17,9 @@ I also added a water level sensor.
 
 ![board](./PumpHysteresis/img/board.jpg)
 [More](./PumpHysteresis/README.md)
+
+# Attiny13 voltage to frequency
+
+When you need to flash the LED depending on the voltage, you can use this project.
+![circuit](./AdcToFreq/img/circuit.png)
+[More](./AdcToFreq/README.md)

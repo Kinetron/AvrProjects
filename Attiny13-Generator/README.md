@@ -10,3 +10,4 @@ Program Files\Microchip\xc8\v2.36\dfp\xc8\avr\include\avr\iotn13a.h
 
 ![button board](./img/circuit.jpg)
 ![button board](./img/device.jpg)
+![button board](./img/fuse.jpg)

@@ -1,14 +1,9 @@
 #include "control_logic.h"
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-
 SystemParameters params =
     {
         OperationMode::Startup,
         false};
-
-char displayBuffer[17];
-char previousDisplayBuffer[17];
 
 uint32_t lastMeasureTime = 0;
 uint32_t voltages[NUM_CHANNELS]; // Values in millivolts
@@ -35,10 +30,9 @@ void logic_init()
 
   // Enable ADC and set Prescaler to 128 (16MHz/128 = 125kHz ADC clock) for ATmega328P.
   ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
-
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);
-
+  
+  blinkBuiltinLedInit();
+  
   // Relays.
   digitalWrite(RELAY_PSU_PIN, HIGH);
   digitalWrite(RELAY_BAT_PIN, HIGH);
@@ -60,17 +54,14 @@ void logic_init()
 
   // Initialize digital pins as inputs.
   // TTP223 sensors output a HIGH signal when touched.
-  pinMode(BTN_MAIN_LOAD_PIN, INPUT);
-  pinMode(BTN_SLAVE_LOAD_PIN, INPUT);
-  pinMode(FAN_PWM_PIN, OUTPUT);
-  digitalWrite(FAN_PWM_PIN, HIGH); // Off fan.
+  buttonsInit();
+  fanInit();
 
   // Full charge current.
   digitalWrite(TURN_ON_FULL_CHARGE_PIN, HIGH);
   pinMode(TURN_ON_FULL_CHARGE_PIN, OUTPUT);
 
-  lcd.init();
-  lcd.backlight();
+  initLCD();
 }
 
 void logic_tick()
@@ -79,11 +70,21 @@ void logic_tick()
   checkLine();
   switchModes();
   protectOvervoltage();
-  displayService();
+
+  displayService(
+    params.mode, 
+    voltages[MAIN_VOLTAGE_INDEX], 
+    voltages[STEP_DOWN_VOLTAGE_INDEX],
+    voltages[BATTERY_VOLTAGE_INDEX], 
+    voltages[LOAD_CURRENT_INDEX],
+    params.ACS712zeroOffset,
+    params.lineOffClock
+  );
+
   monitorLineRecovery();
-  blinkBuiltinLed();
-  readButtons();
-  fanControl();
+  blinkBuiltinLedProcess();
+  readButtons(&params.OffMainLoad, &params.OffSlaveLoad);
+  fanControl(voltages[TEMPERATURE_SENSOR_VOLTAGE_INDEX]);
   chargelogic();
 }
 
@@ -96,7 +97,7 @@ void switchModes()
     break;
 
   case OperationMode::StartupDelay:
-    params.blinkBuiltinLedOn = false;
+    offBlinkBuiltinLed();
     workAfterload();
     break;
 
@@ -117,8 +118,7 @@ void switchModes()
     break;
 
   case OperationMode::HardwareError:
-    params.blinkIntervalBuiltin = BLINK_INTERVAL_03S;
-    params.blinkBuiltinLedOn = true;
+    blinkBuiltinLed(true, BLINK_INTERVAL_03S);
     break;
   }
 }
@@ -145,8 +145,7 @@ bool initDelayPassed()
 void startupStep()
 {
   char buffer[17];
-  params.blinkIntervalBuiltin = BLINK_INTERVAL_1S;
-  params.blinkBuiltinLedOn = true;
+  blinkBuiltinLed(true, BLINK_INTERVAL_1S);
 
   calibrateACS712();
 
@@ -324,7 +323,8 @@ void protectOvervoltage()
 // Delay after AC line recovery.
 bool lineOnTimer()
 {
-  if (params.lineOnTimer == 0)
+  if (params.lineOnTimer == 0 ||
+      params.lineOnTimer > getSeconds())
   {
     params.lineOnTimer = getSeconds();
     params.waitingTimePassed = 0;
@@ -350,7 +350,8 @@ void resetlineOnTimer()
 // Timer for waiting for stable line voltage.
 bool attemptsAfterlineOnTimer()
 {
-  if (params.attemptsAfterlineOn == 0)
+  if (params.attemptsAfterlineOn == 0 ||
+      params.attemptsAfterlineOn > getSeconds())
   {
     params.attemptsAfterlineOn = getSeconds();
   }
@@ -373,8 +374,7 @@ void resetAttemptsAfterlineOnTimer()
 void lineAfterBatteryStep()
 {
   char buffer[17];
-  params.blinkIntervalBuiltin = BLINK_INTERVAL_1S;
-  params.blinkBuiltinLedOn = true;
+  blinkBuiltinLed(true, BLINK_INTERVAL_1S);
 
   snprintf(buffer, sizeof(buffer), "Line OK.Wait%d/%d",
            params.waitingTimePassed, LINE_ON_DELAY);
@@ -391,7 +391,7 @@ void lineAfterBatteryStep()
   {
     resetAttemptsAfterlineOnTimer();
     resetlineOnTimer();
-    params.blinkBuiltinLedOn = false;
+    offBlinkBuiltinLed();
     params.mode = OperationMode::Battery;
     return;
   }
@@ -401,60 +401,8 @@ void lineAfterBatteryStep()
   {
     resetlineOnTimer();
     resetAttemptsAfterlineOnTimer();
-    params.blinkBuiltinLedOn = false;
+    offBlinkBuiltinLed();
     params.mode = OperationMode::Normal;
-  }
-}
-
-// Starts the process of displaying messages on the screen.
-void printMessage(const char *text)
-{
-  strncpy(displayBuffer, text, sizeof(displayBuffer) - 1);
-  displayBuffer[sizeof(displayBuffer) - 1] = '\0';
-  if (strcmp(displayBuffer, previousDisplayBuffer) == 0)
-  {
-    return;
-  }
-  strcpy(previousDisplayBuffer, displayBuffer);
-  params.isNeedDisplayed = true;
-}
-
-// Adds spaces. Padding the string to 16 characters.
-void addSpaces()
-{
-  int len = strlen(displayBuffer);
-  if (len > 16)
-  {
-    len = 16;
-  }
-
-  // Fill from current end to the 15th index.
-  for (int i = len; i < 16; i++)
-  {
-    displayBuffer[i] = ' ';
-  }
-
-  displayBuffer[16] = '\0';
-}
-
-// Displays messages and voltage on the screen.
-void displayService()
-{
-  // Print text if change.
-  if (params.isNeedDisplayed)
-  {
-    addSpaces();
-    lcd.setCursor(0, 0);
-    lcd.print(displayBuffer);
-    params.isNeedDisplayed = false;
-  }
-
-  // Print DC values.
-  uint32_t currentMillis = millis();
-  if (currentMillis - params.lastLcdUpdate >= LCD_INTERVAL)
-  {
-    params.lastLcdUpdate = currentMillis;
-    showParams();
   }
 }
 
@@ -537,239 +485,6 @@ void monitorLineRecovery()
   }
 }
 
-void buttonLongPressCheck(uint8_t pin, uint32_t *btnTimer, bool *targetFlag, bool *isLocked)
-{
-  uint32_t currentTime = getSeconds();
-
-  // Check if the sensor is currently touched.
-  if (digitalRead(pin))
-  {
-    // If the timer is not running, start it now. Or if it work > 49days.
-    if (*btnTimer == 0 || currentTime < *btnTimer)
-    {
-      *btnTimer = currentTime;
-    }
-
-    // Check if the holding time has exceeded our threshold
-    // Also check if we haven't toggled the flag yet during this press (isLocked)
-    if (!(*isLocked) && (currentTime - *btnTimer >= BTN_HOLD_TIME))
-    {
-      *targetFlag = !(*targetFlag); // Switch 0 to 1 or 1 to 0
-      *isLocked = true;             // Lock further toggles until finger is removed
-    }
-  }
-  else
-  {
-    // Reset everything for the next touch.
-    *btnTimer = 0;
-    *isLocked = false;
-  }
-}
-
-void readButtons()
-{
-  // Off/On main load.
-  buttonLongPressCheck(BTN_MAIN_LOAD_PIN, &params.btnOffLoadTimer,
-                       &params.OffMainLoad, &params.btnOffLoadLock);
-
-  // Off/On slave load.
-  buttonLongPressCheck(BTN_SLAVE_LOAD_PIN, &params.btnSlaveLoadTimer,
-                       &params.OffSlaveLoad, &params.btnSlaveLoadLock);
-}
-
-// Blink built-in led on the arduino nano board.
-void blinkBuiltinLed()
-{
-  if (!params.blinkBuiltinLedOn)
-  {
-    digitalWrite(LED_BUILTIN, LOW);
-    return;
-  }
-
-  uint32_t currentTime = millis();
-
-  if (currentTime - params.lastBlinkTimeBuiltin >= params.blinkIntervalBuiltin)
-  {
-    params.lastBlinkTimeBuiltin = currentTime;
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-  }
-}
-
-// Displays voltages and currents on the display.
-void showParams()
-{
-  switch (params.mode)
-  {
-  case OperationMode::Startup:
-    showVoltages();
-    break;
-
-  case OperationMode::StartupDelay:
-    showVoltages();
-    break;
-
-  case OperationMode::Normal:
-    showOutputParams(LoadSource::MainPSU);
-    break;
-
-  case OperationMode::Battery:
-    showOutputParams(LoadSource::Battery);
-    break;
-
-  case OperationMode::LineAfterBattery:
-    showOutputParams(LoadSource::Battery);
-    break;
-
-  case OperationMode::HardwareError:
-    showVoltages();
-    break;
-  }
-}
-
-// Split raw voltage values (in mV or scaled units).
-VoltageDisplay parseVoltage(uint32_t rawValue, Precision type)
-{
-  VoltageDisplay value;
-
-  // Calculate the whole number (e.g., 12850 -> 12).
-  value.whole = rawValue / 1000;
-
-  // Extract the first decimal digit (e.g., 12850 % 1000 = 850; 850 / 10 = 85).
-  // Note: Use / 100 if you only need one digit (0-9).
-  value.decimal = (rawValue % 1000) / static_cast<uint8_t>(type);
-
-  return value;
-}
-
-// Displays voltages of main dc, output step down, battery.
-void showVoltages()
-{
-  char line[17]; // Buffer for LCD (16 chars + null terminator)
-
-  // Сhannel 0 (A0). Main DC(e.g., 12.81).
-  VoltageDisplay mainLine = parseVoltage(voltages[MAIN_VOLTAGE_INDEX], Precision::Hundredths);
-
-  // Channel 1 (A1). Output step down(e.g., 12.83).
-  VoltageDisplay stepDown = parseVoltage(voltages[STEP_DOWN_VOLTAGE_INDEX], Precision::Hundredths);
-
-  // Channel 2 (A2). Battery(e.g., 28.7)
-  VoltageDisplay battery = parseVoltage(voltages[BATTERY_VOLTAGE_INDEX], Precision::Tenths);
-
-  snprintf(line, sizeof(line), "%2d.%1d %2d.%1d %2d.%1d", mainLine.whole, mainLine.decimal,
-           stepDown.whole, stepDown.decimal, battery.whole, battery.decimal);
-
-  lcd.setCursor(0, 1);
-  lcd.print(line);
-}
-
-// Shows the output voltage and current on the display.
-void showOutputParams(LoadSource sourceType)
-{
-  char line[17];
-
-  uint8_t chargeLevel = batteryChargeLevel();
-
-  // Get current in mA (e.g., 1780 for 1.78А.)
-  int32_t sensotVoltage = (voltages[LOAD_CURRENT_INDEX] - params.ACS712zeroOffset) - ACS_OFFSET;
-  if (sensotVoltage < 0)
-  {
-    sensotVoltage = 0;
-  }
-
-  uint32_t loadCurrentRaw = abs((sensotVoltage) * 1000L / ACS_SENSITIVITY);
-  VoltageDisplay loadCurrent = parseVoltage(loadCurrentRaw, Precision::Hundredths);
-
-  if (params.mode == OperationMode::Battery)
-  {
-    // Counting line off time.
-    lineOffClock();
-    snprintf(line, sizeof(line), "%d%% %2d.%02d %02u:%02u ",
-             chargeLevel,
-             loadCurrent.whole, loadCurrent.decimal,
-             params.lineOffClock.hours,
-             params.lineOffClock.minutes);
-  }
-  else
-  {
-    lineOffClockReset();
-    snprintf(line, sizeof(line), "%d%% %2d.%02dA      ",
-             chargeLevel,
-             loadCurrent.whole, loadCurrent.decimal);
-  }
-
-  lcd.setCursor(0, 1);
-  lcd.print(line);
-}
-
-uint8_t batteryChargeLevel()
-{
-  uint32_t voltage = constrain(voltages[BATTERY_VOLTAGE_INDEX],
-                               BATTERY_MIN_MV, BATTERY_MAX_MV);
-
-  uint32_t range = BATTERY_MAX_MV - BATTERY_MIN_MV;
-  if (voltage < BATTERY_MIN_MV)
-  {
-    return 0;
-  }
-
-  uint32_t relativeVoltage = voltage - BATTERY_MIN_MV;
-
-  return (relativeVoltage * 100UL) / range;
-}
-
-// Controls the fan speed.
-void fanControl()
-{
-  uint32_t now = millis();
-
-  // Run fan control logic every x seconds.
-  if (now - params.fanLastLogicTime < FAN_REACTION_TIME)
-  {
-    return;
-  }
-
-  params.fanLastLogicTime = now;
-
-  // 2414mv at 24 degrees
-  uint32_t voltage = voltages[TEMPERATURE_SENSOR_VOLTAGE_INDEX];
-  uint8_t targetSpeed = 0;
-
-  // Hysteresis logic
-  if (voltage > TEMP_ON)
-  {
-    // Map the input value to PWM range.
-    int32_t mapped = map(voltage, TEMP_ON, TEMP_MAX, SPEED_MIN, SPEED_MAX);
-    targetSpeed = (uint8_t)constrain(mapped, SPEED_MIN, SPEED_MAX);
-  }
-  else if (voltage < TEMP_OFF)
-  {
-    // Turn off if below the lower threshold.
-    targetSpeed = 0;
-  }
-  else
-  {
-    // Keep previous state if value is within the "dead zone" (hysteresis).
-    targetSpeed = params.fanCurrentSpeed;
-  }
-
-  // Check if we need to start a kickstart burst
-  if (targetSpeed > 0 && params.fanCurrentSpeed == 0)
-  {
-    params.fanKickstopTime = millis() + KICK_MS;
-  }
-
-  params.fanCurrentSpeed = targetSpeed;
-
-  if (millis() < params.fanKickstopTime)
-  {
-    analogWrite(FAN_PWM_PIN, 0); // Max speed.
-  }
-  else
-  {
-    analogWrite(FAN_PWM_PIN, SPEED_MAX - params.fanCurrentSpeed);
-  }
-}
-
 // Controls the battery charge current.
 void chargelogic()
 {
@@ -796,7 +511,8 @@ void chargelogic()
 bool fullChargeTimer()
 {
   uint32_t time = getSeconds();
-  if (params.onFullChargeTimer == 0 || params.onFullChargeTimer > time)
+  if (params.onFullChargeTimer == 0 ||
+      params.onFullChargeTimer > time)
   {
     params.onFullChargeTimer = time;
   }
@@ -809,15 +525,18 @@ bool fullChargeTimer()
   return false;
 }
 
+// Resets the full charge timer.
 void resetFullChargeTimer()
 {
   params.onFullChargeTimer = 0;
 }
 
+// Checks if the ACS712 calibration interval has elapsed.
 bool ACS712calibrateTimer()
 {
   uint32_t time = getSeconds();
-  if (params.ACS712calibrateTimer == 0 || params.ACS712calibrateTimer > time)
+  if (params.ACS712calibrateTimer == 0 ||
+      params.ACS712calibrateTimer > time)
   {
     params.ACS712calibrateTimer = time;
   }
@@ -830,11 +549,13 @@ bool ACS712calibrateTimer()
   return false;
 }
 
+// Resets the timer for ACS712 sensor calibration.
 void resetACS712calibrateTimer()
 {
   params.ACS712calibrateTimer = 0;
 }
 
+// Calibrates the ACS712 current sensor.
 void calibrateACS712()
 {
   if (params.isCalibrateACS712)
@@ -871,6 +592,7 @@ void autoOffSecondLoad()
   }
 }
 
+// Resets the second load outage interval timer.
 bool offSecondLoadTimer()
 {
   uint32_t time = getSeconds();
@@ -888,11 +610,13 @@ bool offSecondLoadTimer()
   return false;
 }
 
+// Resets the second load outage timer.
 void resetOffSecondLoadTimer()
 {
   params.periodOffSecondLoadTimer = 0;
 }
 
+// Calculating the line outage time.
 void lineOffClock()
 {
   uint32_t time = millis();
@@ -914,6 +638,7 @@ void lineOffClock()
   }
 }
 
+// Resets the line outage clock.
 void lineOffClockReset()
 {
   params.lineOffClock.seconds = 0;

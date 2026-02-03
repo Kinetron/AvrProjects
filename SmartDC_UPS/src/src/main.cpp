@@ -1,7 +1,5 @@
 #include "control_logic.h"
 
-
-
 void setup() {
   logic_init();
 }

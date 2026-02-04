@@ -77,13 +77,12 @@ void logic_tick()
     voltages[STEP_DOWN_VOLTAGE_INDEX],
     voltages[BATTERY_VOLTAGE_INDEX], 
     voltages[LOAD_CURRENT_INDEX],
-    params.ACS712zeroOffset,
-    params.lineOffClock
+    params.ACS712zeroOffset
   );
 
   monitorLineRecovery();
   blinkBuiltinLedProcess();
-  readButtons(&params.OffMainLoad, &params.OffSlaveLoad);
+  readButtons(&params.OffMainLoad, &params.OffSlaveLoadFromBtn);
   fanControl(voltages[TEMPERATURE_SENSOR_VOLTAGE_INDEX]);
   chargelogic();
 }
@@ -215,7 +214,7 @@ void switchPowerSources(LoadSource sourceType)
     }
 
     // On slave load MOSFET.
-    if (!params.OffSlaveLoad)
+    if (!params.OffSlaveLoadFromBtn && !params.OffSlaveLoad)
     {
       digitalWrite(SLAVE_LOAD_ON_PIN, HIGH);
     }
@@ -230,7 +229,8 @@ void loadOn(LoadSource sourceType)
   if (params.lastPowerState)
   {
     digitalWrite(MAIN_LOAD_ON_PIN, !params.OffMainLoad);
-    digitalWrite(SLAVE_LOAD_ON_PIN, !params.OffSlaveLoad);
+    digitalWrite(SLAVE_LOAD_ON_PIN,
+         !params.OffSlaveLoadFromBtn && !params.OffSlaveLoad);
   }
 
   switchPowerSources(sourceType);
@@ -614,34 +614,4 @@ bool offSecondLoadTimer()
 void resetOffSecondLoadTimer()
 {
   params.periodOffSecondLoadTimer = 0;
-}
-
-// Calculating the line outage time.
-void lineOffClock()
-{
-  uint32_t time = millis();
-  if (time - params.lastClockTick >= 1000)
-  {
-    params.lastClockTick = time;
-    params.lineOffClock.seconds++;
-
-    if (params.lineOffClock.seconds >= 60)
-    {
-      params.lineOffClock.seconds = 0;
-      params.lineOffClock.minutes++;
-      if (params.lineOffClock.minutes >= 60)
-      {
-        params.lineOffClock.minutes = 0;
-        params.lineOffClock.hours++;
-      }
-    }
-  }
-}
-
-// Resets the line outage clock.
-void lineOffClockReset()
-{
-  params.lineOffClock.seconds = 0;
-  params.lineOffClock.minutes = 0;
-  params.lineOffClock.hours = 0;
 }

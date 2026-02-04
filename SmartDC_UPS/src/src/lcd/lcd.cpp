@@ -5,6 +5,9 @@ bool isNeedDisplayed;
 uint32_t lastLcdUpdate;
 char displayBuffer[17];
 char previousDisplayBuffer[17];
+TimeValues linePowerOffClock;
+uint32_t lastClockTick;
+uint32_t lineOffStartTime;
 
 // Initializes the LCD display.
 void initLCD()
@@ -15,7 +18,7 @@ void initLCD()
 
 // Displays messages and voltage on the screen.
 void displayService(OperationMode mode, uint32_t main, uint32_t stepDown, uint32_t battery,
-                    uint32_t adcCurrent, uint32_t currentZeroOffset, const TimeValues &clock)
+                    uint32_t adcCurrent, uint32_t currentZeroOffset)
 {
   // Print text if change.
   if (isNeedDisplayed)
@@ -33,7 +36,7 @@ void displayService(OperationMode mode, uint32_t main, uint32_t stepDown, uint32
     lastLcdUpdate = currentMillis;
     uint8_t chargeLevel = batteryChargeLevel(battery);
     uint32_t current = calculateACS712Current(adcCurrent, currentZeroOffset);
-    showParams(mode, main, stepDown, battery, current, chargeLevel, clock);
+    showParams(mode, main, stepDown, battery, current, chargeLevel);
   }
 }
 
@@ -70,7 +73,7 @@ void printMessage(const char *text)
 
 // Displays voltages and currents on the display.
 void showParams(OperationMode mode, uint32_t main, uint32_t stepDown, uint32_t battery,
-                uint32_t current, uint8_t chargeLevel, const TimeValues &clock)
+                uint32_t current, uint8_t chargeLevel)
 {
   switch (mode)
   {
@@ -83,15 +86,15 @@ void showParams(OperationMode mode, uint32_t main, uint32_t stepDown, uint32_t b
     break;
 
   case OperationMode::Normal:
-    showOutputParams(false, chargeLevel, current, clock);
+    showOutputParams(false, chargeLevel, current);
     break;
 
   case OperationMode::Battery:
-    showOutputParams(true, chargeLevel, current, clock);
+    showOutputParams(true, chargeLevel, current);
     break;
 
   case OperationMode::LineAfterBattery:
-    showOutputParams(true, chargeLevel, current, clock);
+    showOutputParams(true, chargeLevel, current);
     break;
 
   case OperationMode::HardwareError:
@@ -137,22 +140,28 @@ void showVoltages(uint32_t mainV, uint32_t stepDownV, uint32_t batteryV)
 
 // Displays the output parameters on the LCD second line.
 void showOutputParams(bool isBatteryMode, uint8_t chargeLevel,
-                      uint32_t current, const TimeValues &clock)
+                      uint32_t current)
 {
   char line[17]; // Buffer for LCD (16 chars + null terminator)
   VoltageDisplay loadCurrent = parseVoltage(current, Precision::Hundredths);
 
   if (isBatteryMode)
   {
+    // Counting line off time.
+    bool showSeparator = lineOffClock();
+
     // Format for Battery Mode: "85%  1.78 02:15 "
-    snprintf(line, sizeof(line), "%d%% %2d.%02d %02u:%02u ",
-             chargeLevel,
-             loadCurrent.whole, loadCurrent.decimal,
-             clock.hours,
-             clock.minutes);
+    snprintf(line, sizeof(line), "%d%% %2d.%02d %02u%c%02u ",
+         chargeLevel,
+         loadCurrent.whole, loadCurrent.decimal,
+         linePowerOffClock.hours,
+         showSeparator ? ':' : ' ',
+         linePowerOffClock.minutes);
   }
   else
   {
+    lineOffClockReset();
+
     // Format for Normal Mode: "100%  1.78A      "
     snprintf(line, sizeof(line), "%d%% %2d.%02dA      ",
              chargeLevel,
@@ -192,4 +201,38 @@ uint32_t calculateACS712Current(uint32_t adcValue, uint32_t zeroOffset)
   }
 
   return abs((sensotVoltage) * 1000L / ACS_SENSITIVITY);
+}
+
+// Calculating the line outage time.
+bool lineOffClock()
+{
+  uint32_t now = millis();
+  bool showSeparator = (now / 500 % 2 == 0);
+  if(lineOffStartTime == 0)
+  {
+    lineOffStartTime = now; 
+  }
+
+  if (now - lastClockTick >= 1000)
+  {
+    lastClockTick = now;
+
+    uint32_t elapsedMs = now - lineOffStartTime;
+    uint32_t totalSeconds = elapsedMs / 1000;
+    linePowerOffClock.seconds = totalSeconds % 60;
+    linePowerOffClock.minutes = (totalSeconds / 60) % 60;
+    linePowerOffClock.hours   = (totalSeconds / 3600);
+  }
+
+  return showSeparator;
+}
+
+// Resets the line outage clock.
+void lineOffClockReset()
+{
+  lineOffStartTime = 0;
+  lastClockTick = 0;
+  linePowerOffClock.seconds = 0;
+  linePowerOffClock.minutes = 0;
+  linePowerOffClock.hours = 0;
 }

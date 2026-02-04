@@ -92,7 +92,8 @@ struct SystemParameters
   uint32_t attemptsAfterlineOn;
   uint8_t waitingTimePassed;
   bool OffMainLoad;
-  bool OffSlaveLoad;
+  bool OffSlaveLoad; 
+  bool OffSlaveLoadFromBtn; // Off load with the button.
   bool lastPowerState; // Was the load enabled or disabled last time.
   uint32_t onFullChargeTimer;
   bool fullChargeOn;
@@ -101,8 +102,6 @@ struct SystemParameters
   uint32_t ACS712zeroOffset;
   uint32_t periodOffSecondLoadTimer;
   bool lastOffSecondLoadStatus;
-  TimeValues lineOffClock;
-  uint32_t lastClockTick;
 };
 
 enum class LoadSource : uint8_t
@@ -197,11 +196,5 @@ bool offSecondLoadTimer();
 
 // Resets the second load outage timer.
 void resetOffSecondLoadTimer();
-
-// Calculating the line outage time.
-void lineOffClock();
-
-// Resets the line outage clock.
-void lineOffClockReset();
 
 #endif

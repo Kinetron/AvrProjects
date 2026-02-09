@@ -3,7 +3,8 @@
 SystemParameters params =
     {
         OperationMode::Startup,
-        false};
+        false
+    };
 
 uint32_t lastMeasureTime = 0;
 uint32_t voltages[NUM_CHANNELS]; // Values in millivolts
@@ -376,7 +377,7 @@ void lineAfterBatteryStep()
   char buffer[17];
   blinkBuiltinLed(true, BLINK_INTERVAL_1S);
 
-  snprintf(buffer, sizeof(buffer), "Line OK.Wait%d/%d",
+  snprintf(buffer, sizeof(buffer), "L OK.Wait%d/%d",
            params.waitingTimePassed, LINE_ON_DELAY);
   printMessage(buffer);
 
@@ -390,7 +391,6 @@ void lineAfterBatteryStep()
   if (attemptsAfterlineOnTimer())
   {
     resetAttemptsAfterlineOnTimer();
-    resetlineOnTimer();
     offBlinkBuiltinLed();
     params.mode = OperationMode::Battery;
     return;

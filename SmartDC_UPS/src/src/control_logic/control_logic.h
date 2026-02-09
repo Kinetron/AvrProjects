@@ -30,16 +30,16 @@
 
 // If the line is disconnected, the main and secondary loads are battery powered.
 // But the secondary load will shut down after a specified period of time.
-#define OFF_TIME_SECOND_LOAD 5
+#define OFF_TIME_SECOND_LOAD 300
 
 #define TEMPERATURE_SENSOR_VOLTAGE_INDEX 4
 
 // Delay after power on in seconds.
-#define STARTUP_DELAY 5
-#define LINE_ON_DELAY 7 // Stabilization interval after line voltage recovery.
+#define STARTUP_DELAY 90
+#define LINE_ON_DELAY 90 // Stabilization interval after line voltage recovery.
 // If you switched to on mode after the line appeared.
 // But the line started disappearing/reappearing. If it has not stabilized, we exit this mode.
-#define LINE_ON_ATTEMPTS 10
+#define LINE_ON_ATTEMPTS 7
 
 #define MAIN_UPPER_THRESHOLD 12800UL      // 12.5V in mV
 #define MAIN_DOWN_LOWER_THRESHOLD 11500UL // 11.5V in mV
@@ -92,7 +92,8 @@ struct SystemParameters
   uint32_t attemptsAfterlineOn;
   uint8_t waitingTimePassed;
   bool OffMainLoad;
-  bool OffSlaveLoad;
+  bool OffSlaveLoad; 
+  bool OffSlaveLoadFromBtn; // Off load with the button.
   bool lastPowerState; // Was the load enabled or disabled last time.
   uint32_t onFullChargeTimer;
   bool fullChargeOn;
@@ -101,8 +102,6 @@ struct SystemParameters
   uint32_t ACS712zeroOffset;
   uint32_t periodOffSecondLoadTimer;
   bool lastOffSecondLoadStatus;
-  TimeValues lineOffClock;
-  uint32_t lastClockTick;
 };
 
 enum class LoadSource : uint8_t
@@ -197,11 +196,5 @@ bool offSecondLoadTimer();
 
 // Resets the second load outage timer.
 void resetOffSecondLoadTimer();
-
-// Calculating the line outage time.
-void lineOffClock();
-
-// Resets the line outage clock.
-void lineOffClockReset();
 
 #endif

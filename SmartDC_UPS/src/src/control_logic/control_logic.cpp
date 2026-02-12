@@ -86,6 +86,7 @@ void logic_tick()
   readButtons(&params.OffMainLoad, &params.OffSlaveLoadFromBtn);
   fanControl(voltages[TEMPERATURE_SENSOR_VOLTAGE_INDEX]);
   chargelogic();
+  onSecondLoadDelegate();
 }
 
 void switchModes()
@@ -217,7 +218,7 @@ void switchPowerSources(LoadSource sourceType)
     // On slave load MOSFET.
     if (!params.OffSlaveLoadFromBtn && !params.OffSlaveLoad)
     {
-      digitalWrite(SLAVE_LOAD_ON_PIN, HIGH);
+      params.onSecondLoad = true; 
     }
     params.lastPowerState = true;
   }
@@ -230,8 +231,7 @@ void loadOn(LoadSource sourceType)
   if (params.lastPowerState)
   {
     digitalWrite(MAIN_LOAD_ON_PIN, !params.OffMainLoad);
-    digitalWrite(SLAVE_LOAD_ON_PIN,
-         !params.OffSlaveLoadFromBtn && !params.OffSlaveLoad);
+    params.onSecondLoad = !params.OffSlaveLoadFromBtn && !params.OffSlaveLoad;
   }
 
   switchPowerSources(sourceType);
@@ -270,6 +270,7 @@ void workAfterload()
   if (params.lineOn)
   {
     params.mode = OperationMode::Normal;
+    params.connectingToMainSource = true;
     return;
   }
 
@@ -306,7 +307,19 @@ bool checkStepDownVoltage()
 
 void protectOvervoltage()
 {
-  if (params.mode == OperationMode::Normal && !checkMainDcVoltage())
+  // Measurement delay before connecting to the main power supply.
+  bool notCheckMainDc = false;
+  if(params.connectingToMainSource)
+  {
+    notCheckMainDc = lockAnalysisVoltageMainSourceTimer();
+    if(!notCheckMainDc)
+    {
+      resetAnalysisVoltageMainSourceTimer();
+      params.connectingToMainSource = false;
+    }
+  }
+  
+  if (!notCheckMainDc && params.mode == OperationMode::Normal && !checkMainDcVoltage())
   {
     loadOn(LoadSource::None);
     params.mode = OperationMode::HardwareError;
@@ -580,6 +593,7 @@ void autoOffSecondLoad()
   {
     params.OffSlaveLoad = false;
     params.lastOffSecondLoadStatus = false;
+    resetOffSecondLoadTimer();
   }
 
   if (params.mode == OperationMode::Battery &&
@@ -614,4 +628,68 @@ bool offSecondLoadTimer()
 void resetOffSecondLoadTimer()
 {
   params.periodOffSecondLoadTimer = 0;
+}
+
+// When connected to the load, it blocks the measurement of voltage on the main power supply unit.
+bool lockAnalysisVoltageMainSourceTimer()
+{
+  uint32_t time = getSeconds();
+  if (params.lockAnalysisVoltageMainSourceTimer == 0 ||
+      params.lockAnalysisVoltageMainSourceTimer > time)
+  {
+    params.lockAnalysisVoltageMainSourceTimer = time;
+  }
+
+  if (time - params.lockAnalysisVoltageMainSourceTimer > 
+      LOCK_ANALYSIS_VOLTAGE_MAIN_SOURCE_DELAY)
+  {
+    return false;
+  }
+
+  return true;    
+}
+
+void resetAnalysisVoltageMainSourceTimer()
+{
+  params.lockAnalysisVoltageMainSourceTimer = 0;
+} 
+
+// Load connection delay.
+bool delayOnSecondLoadTimer()
+{
+  uint32_t time = getSeconds();
+  if (params.delayOnSecondLoadTimer == 0 ||
+      params.delayOnSecondLoadTimer > time)
+  {
+    params.delayOnSecondLoadTimer = time;
+  }
+
+  if (time - params.delayOnSecondLoadTimer > 
+      SECOND_LOAD_ON_DELAY)
+  {
+    return false;
+  }
+
+  return true;
+}
+
+void resetDelayOnSecondLoadTimer()
+{
+  params.delayOnSecondLoadTimer = 0;
+}
+
+void onSecondLoadDelegate()
+{
+  if(!params.onSecondLoad)
+  {
+    digitalWrite(SLAVE_LOAD_ON_PIN, LOW);
+    return;
+  }  
+
+  // Delay on.
+  if(!digitalRead(SLAVE_LOAD_ON_PIN) && !delayOnSecondLoadTimer())
+  {
+     digitalWrite(SLAVE_LOAD_ON_PIN, HIGH);
+     resetDelayOnSecondLoadTimer();
+  }
 }

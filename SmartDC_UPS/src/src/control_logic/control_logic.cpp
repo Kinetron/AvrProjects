@@ -678,6 +678,7 @@ void resetDelayOnSecondLoadTimer()
   params.delayOnSecondLoadTimer = 0;
 }
 
+// Turns on/off the secondary load.
 void onSecondLoadDelegate()
 {
   if(!params.onSecondLoad)

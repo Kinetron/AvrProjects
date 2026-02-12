@@ -214,5 +214,6 @@ bool delayOnSecondLoadTimer();
 
 void resetDelayOnSecondLoadTimer();
 
+// Turns on/off the secondary load.
 void onSecondLoadDelegate();
 #endif

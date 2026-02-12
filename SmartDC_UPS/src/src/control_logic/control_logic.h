@@ -42,7 +42,7 @@
 #define LINE_ON_ATTEMPTS 7
 
 #define MAIN_UPPER_THRESHOLD 12800UL      // 12.5V in mV
-#define MAIN_DOWN_LOWER_THRESHOLD 11500UL // 11.5V in mV
+#define MAIN_DOWN_LOWER_THRESHOLD 10000UL // 11.5V in mV
 #define MAIN_VOLTAGE_INDEX 0
 
 #define STEP_DOWN_UPPER_THRESHOLD 12800UL // 12.5V in mV
@@ -51,6 +51,9 @@
 
 #define BATTERY_LOWER_THRESHOLD 10100UL
 #define BATTERY_VOLTAGE_INDEX 2
+
+#define LOCK_ANALYSIS_VOLTAGE_MAIN_SOURCE_DELAY 5
+#define SECOND_LOAD_ON_DELAY 5
 
 #define LOAD_CURRENT_INDEX 3
 // Delay for obtaining ADC values before calibrating the sensor. Seconds.
@@ -102,6 +105,10 @@ struct SystemParameters
   uint32_t ACS712zeroOffset;
   uint32_t periodOffSecondLoadTimer;
   bool lastOffSecondLoadStatus;
+  bool connectingToMainSource; //Elimination of interference when switching on from the line.
+  uint32_t lockAnalysisVoltageMainSourceTimer;
+  uint32_t delayOnSecondLoadTimer; // Delay on the second load.
+  bool onSecondLoad;
 };
 
 enum class LoadSource : uint8_t
@@ -197,4 +204,15 @@ bool offSecondLoadTimer();
 // Resets the second load outage timer.
 void resetOffSecondLoadTimer();
 
+// When connected to the load, it blocks the measurement of voltage on the main power supply unit.
+bool lockAnalysisVoltageMainSourceTimer();
+
+void resetAnalysisVoltageMainSourceTimer();
+
+// Load connection delay.
+bool delayOnSecondLoadTimer();
+
+void resetDelayOnSecondLoadTimer();
+
+void onSecondLoadDelegate();
 #endif

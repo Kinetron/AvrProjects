@@ -6,7 +6,7 @@ Uninterruptible Power Supply (UPS) for network equipment.
 Developed in PlatformIO, partially built using Arduino modules.
 Output: 12V. Backup source: 7S Lithium battery (29V).
 ![Face Image](./SmartDC_UPS/assets/face.jpg)
-[More](./SmartDC_UPS/assets/README.md)
+[More](./SmartDC_UPS/README.md)
 
 # Attiny13 Generator
 Square signal generator base on ATtiny13 avr chip.
